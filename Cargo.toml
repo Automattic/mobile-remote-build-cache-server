@@ -1,0 +1,50 @@
+[package]
+name = "apps-infra-mobile-build-cache-server"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+description = "Gradle remote build cache server"
+publish = false
+
+# Direct dependencies are kept to a handful; each one is justified here.
+# Deliberately absent: web frameworks, serde, clap, Prometheus clients, logging
+# frameworks, TLS stacks, AWS SDKs.
+[dependencies]
+# Async runtime: sockets, timers, signals, blocking pool. Only the features used.
+tokio = { version = "1.54", default-features = false, features = ["rt-multi-thread", "net", "time", "signal", "sync", "macros"] }
+# HTTP/1.1 server. No client, no HTTP/2.
+hyper = { version = "1.12", default-features = false, features = ["http1", "server"] }
+# Only for `TokioIo`, the adapter between tokio sockets and hyper's IO traits.
+hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
+# argon2id password hashing: existing passwords of unknown strength are kept,
+# so they need a slow hash.
+argon2 = "0.6"
+# Keyed hash (BLAKE2b MAC) for the verification cache. Already in the tree as
+# a dependency of argon2, so it adds no new crate.
+blake2 = "0.11"
+# OS randomness for temp file names and the per-process MAC key. Already in
+# the tree as a dependency of argon2's salt generation.
+getrandom = "0.4"
+# Safe wrapper for statvfs (free disk space); keeps `forbid(unsafe_code)` intact.
+rustix = { version = "1.1", default-features = false, features = ["std", "fs"] }
+
+[dev-dependencies]
+# Tests drive the server over raw sockets; this only adds the read/write helpers.
+tokio = { version = "1.54", default-features = false, features = ["io-util", "rt-multi-thread", "macros", "net", "time", "process"] }
+
+# Password hashing is unusably slow without optimisation; keep it fast in test builds.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
+
+[profile.release]
+lto = true
+codegen-units = 1
+# A panic takes the process down and the orchestrator restarts it; the index
+# rebuilds from disk. Handlers return errors rather than panic.
+panic = "abort"
+strip = true
+
+[lints.rust]
+unsafe_code = "forbid"
